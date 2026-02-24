@@ -2,94 +2,93 @@
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
   import {
-    getPoliticalOrganization,
-    createPoliticalOrganization,
-    updatePoliticalOrganization,
-    deletePoliticalOrganization
-  } from '$lib/services/politicalOrganizationService';
+    getElectoralPositions,
+    createElectoralPosition,
+    updateElectoralPosition,
+    deleteElectoralPosition
+  } from '$lib/services/electoralPositionService';
   import { getElectoralProcessActive } from '$lib/services/electoralProcessService';
-  import type { PoliticalOrganization, Country, GeoPointData, PolygonData, ElectoralProcess } from '$lib/types/types';
+  import type { ElectoralPosition, ElectoralProcess } from '$lib/types/types';
   import { Trash2, Pencil } from 'lucide-svelte';
 
   // Leaflet se importará dinámicamente solo en el navegador
   let L: any;
   let leafletLoaded = false;
 
-  let allpoliticalOrganization: PoliticalOrganization[] = [];
+  let allElectoralPosition: ElectoralPosition[] = [];
   let allProcess: ElectoralProcess[] = [];
   let loaded = false;
   let search = '';
-  let sortKey: keyof PoliticalOrganization = 'id';
+  let sortKey: keyof ElectoralPosition = 'id';
   let sortAsc = true;
   let currentPage = 1;
   const pageSize = 5;
 
   let showModal = false;
   let modalType: 'add' | 'edit' | 'delete' = 'add';
-  let selected: PoliticalOrganization | null = null;
+  let selected: ElectoralPosition | null = null;
 
   // Formulario
-  let formData = {
-    sigla: '',
+  let formData: {
+    name: string;
+    scope: 'DEPARTAMENTAL' | 'PROVINCIAL' | 'MUNICIPAL' | '';
+    order: number;
+    electoralProcessId: string;
+  } = {
     name: '',
-    color: '',
+    scope: '',
+    order: 1,
     electoralProcessId:''
   };
+  
   let errors = {
-    sigla: '',
     name: '',
-    color: '',
+    scope: '',
+    order: '',
     electoralProcessId:''
   };
 
-  // Leaflet maps
-  let mapPoint: any, pointMarker: any;
-  let mapPolygon: any, drawnItems: any;
+  const scopes = [
+    { value: 'DEPARTAMENTAL', label: 'Departamental' },
+    { value: 'PROVINCIAL', label: 'Provincial' },
+    { value: 'MUNICIPAL', label: 'Municipal' }
+  ];
+
 
   // VALIDACIÓN
   function validateForm() {
-    errors = { sigla:'', name:'', color:'', electoralProcessId:''};
+    errors = { name:'', scope:'', order:'', electoralProcessId:''};
 
-    if (!formData.sigla.trim()) errors.sigla = 'La sigla es obligatoria';
     if (!formData.name.trim()) errors.name = 'El nombre es obligatorio';
-    if (!formData.color.trim()) errors.color = 'El color es obligatorio';
+    if (!formData.scope) errors.scope = 'El alcance es obligatorio';
+    if (!formData.order || formData.order < 1) errors.order = 'El orden debe ser mayor a 0';
     if (!formData.electoralProcessId) errors.electoralProcessId = 'Debe seleccionar un proceso electoral';
 
-    return !errors.sigla && !errors.name && !errors.color && !errors.electoralProcessId;
+    return !errors.name && !errors.scope && !errors.order && !errors.electoralProcessId;
   }
 
   // CARGA INICIAL
   onMount(async () => {
    if (browser) {
-      // Cargar Leaflet dinámicamente solo en el navegador
-      /*try {
-        L = (await import('leaflet')).default;
-        await import('leaflet/dist/leaflet.css');
-        await import('leaflet-draw');
-        await import('leaflet-draw/dist/leaflet.draw.css');
-        leafletLoaded = true;
-      } catch (error) {
-        console.error('Error cargando Leaflet:', error);
-      }*/
-
-      allpoliticalOrganization = await getPoliticalOrganization();
+      allElectoralPosition = await getElectoralPositions();
       allProcess = await getElectoralProcessActive();
       loaded = true;
     }
   });
 
   async function reload() {
-    allpoliticalOrganization = await getPoliticalOrganization();
+    allElectoralPosition = await getElectoralPositions();
   }
 
   async function save() {
     if (!validateForm() || !browser) return;
     
     try {
+      console.log(formData);
       if (modalType === 'add') {
-        await createPoliticalOrganization(formData);
+        await createElectoralPosition(formData as any);
       } else if (selected) {
-        await updatePoliticalOrganization(selected.id || '', formData);
+        await updateElectoralPosition(selected.id || '', formData as any);
       }
       await reload();
       close();
@@ -101,39 +100,39 @@
 
   async function deleteItem() {
     if (!selected || !browser) return;
-    await deletePoliticalOrganization(selected.id || '');
+    await deleteElectoralPosition(selected.id || '');
     await reload();
     close();
   }
 
   $: searchLower = search.toLowerCase();
-  $: filtered = allpoliticalOrganization
+  $: filtered = allElectoralPosition  
     .filter(o => o.name.toLowerCase().includes(searchLower) || 
-                 String(o.sigla).includes(search))
+                 String(o.scope).includes(search))
     .sort((a, b) => {
-      const aVal = a[sortKey] as string | number;
-      const bVal = b[sortKey] as string | number;
+      const aVal = a[sortKey] as string | number | undefined || '';
+      const bVal = b[sortKey] as string | number | undefined || '';
       return aVal < bVal ? (sortAsc ? -1 : 1) : aVal > bVal ? (sortAsc ? 1 : -1) : 0;
     });
 
   $: paginated = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   $: totalPages = Math.ceil(filtered.length / pageSize);
 
-  function sort(key: keyof PoliticalOrganization) {
+  function sort(key: keyof ElectoralPosition) {
     sortAsc = sortKey === key ? !sortAsc : true;
     sortKey = key;
   }
 
-  function open(type: 'add' | 'edit' | 'delete', item?: PoliticalOrganization) {
+  function open(type: 'add' | 'edit' | 'delete', item?: ElectoralPosition) {
     modalType = type;
     if (type === 'add') {
-      formData = { sigla:'', name:'',color:'',electoralProcessId:''};
+      formData = { name:'', scope:'', order:1, electoralProcessId:''};
       selected = null;
     } else if (item) {
       formData = {
-        sigla: item.sigla,
         name: item.name,
-        color:item.color,
+        scope: item.scope,
+        order:item.order,
         electoralProcessId: item.electoralProcess?.id || '',
       };
       selected = item;
@@ -144,7 +143,7 @@
   function close() {
     showModal = false;
     selected = null;
-    errors = { sigla:'', name:'', color:'',electoralProcessId:'' };
+    errors = { name:'', scope:'', order:'',electoralProcessId:'' };
   }
 
 </script>
@@ -152,18 +151,18 @@
 <section class="space-y-6 w-full max-w-full overflow-x-hidden">
   <!-- HEADER --> 
   <div class="flex flex-col sm:flex-row gap-3 sm:gap-0 justify-between items-start sm:items-center">
-    <h1 class="text-3xl font-bold dark:text-white">Organizaciones Politica</h1>
+    <h1 class="text-3xl font-bold dark:text-white">Cargos Electorales</h1>
     <button
       class="flex gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-xl shadow-md transition"
       on:click={() => open('add')}
     >
-      <span class="text-sm font-semibold">Nuevo</span>
+      <span class="text-sm font-semibold">Nuevo Cargo</span>
     </button>
   </div>
 
   <input
     type="text"
-    placeholder="Buscar organización politica"
+    placeholder="Buscar cargo electoral..."
     bind:value={search}
     class="w-full px-4 py-2 rounded-xl border shadow-sm dark:bg-gray-800 dark:border-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
   />
@@ -173,10 +172,10 @@
       <table class="w-full table-auto min-w-[600px]">
         <thead class="bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900">
           <tr class="text-gray-700 dark:text-gray-300 uppercase text-xs">
-            {#each [['id','ID'],['code','Código'],['name','Nombre','Proceso Electoral'],['electoralProcess','Proceso Electoral']] as [key,label]}
+            {#each [['order','Orden'],['name','Nombre'],['scope','Alcance'],['electoralProcess','Proceso Electoral']] as [key,label]}
               <th
                 class="px-3 sm:px-6 py-2 sm:py-3 text-left cursor-pointer select-none"
-                on:click={() => sort(key as keyof PoliticalOrganization)}
+                on:click={() => sort(key as keyof ElectoralPosition)}
               >
                 {label} <span class="ml-1">{sortKey === key ? (sortAsc ? '▲' : '▼') : ''}</span>
               </th>
@@ -188,11 +187,17 @@
           {#each paginated as row, index (row.id)}
             <tr class="hover:bg-gray-50 dark:hover:bg-gray-800 transition">
               <td class="px-3 sm:px-6 py-2 sm:py-4 dark:text-gray-200 font-medium">
-                {(currentPage - 1) * pageSize + index + 1}
+                {row.order}
               </td>
-              <td class="px-3 sm:px-6 py-2 sm:py-4 dark:text-gray-200">{row.sigla}</td>
-              <td class="px-3 sm:px-6 py-2 sm:py-4 dark:text-gray-200">{row.name}</td>
-               <td class="px-3 sm:px-6 py-2 sm:py-4 dark:text-gray-200">{row.electoralProcess.name}</td>
+              <td class="px-3 sm:px-6 py-2 sm:py-4 dark:text-gray-200 font-semibold">{row.name}</td>
+              <td class="px-3 sm:px-6 py-2 sm:py-4 dark:text-gray-200">
+                <span class="px-2 py-1 rounded-full text-xs font-semibold 
+                  {row.scope === 'DEPARTAMENTAL' ? 'bg-blue-100 text-blue-800' : 
+                   row.scope === 'PROVINCIAL' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}">
+                  {row.scope}
+                </span>
+              </td>
+              <td class="px-3 sm:px-6 py-2 sm:py-4 dark:text-gray-200">{row.electoralProcess.name}</td>
               <td class="px-3 sm:px-6 py-2 sm:py-4">
                 <div class="flex justify-end gap-3">
                   <button
@@ -248,7 +253,7 @@
   <div class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
     <div class="bg-white dark:bg-gray-900 border dark:border-gray-700 p-6 rounded-xl shadow-xl w-full max-w-sm sm:max-w-md max-h-[90vh] overflow-y-auto">
       {#if modalType === 'delete' && selected}
-        <h2 class="text-xl font-bold mb-4 dark:text-white">Eliminar Organización Politica</h2>
+        <h2 class="text-xl font-bold mb-4 dark:text-white">Eliminar Cargo Electoral</h2>
         <p class="mb-4 dark:text-gray-300">
           ¿Estás seguro de eliminar <strong>{selected.name}</strong>?
         </p>
@@ -257,7 +262,7 @@
           <button class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white" on:click={deleteItem}>Eliminar</button>
         </div>
       {:else}
-        <h2 class="text-xl font-bold mb-4 dark:text-white">{modalType === 'add' ? 'Agregar' : 'Editar'} politicalOrganizationo</h2>
+        <h2 class="text-xl font-bold mb-4 dark:text-white">{modalType === 'add' ? 'Agregar' : 'Editar'} Cargo Electoral</h2>
 
         <div class="space-y-4">
           <!-- COUNTRY SELECT -->
@@ -277,51 +282,40 @@
             <label class="font-semibold dark:text-white text-sm mb-1 block">Nombre</label>
             <input
               type="text"
-              placeholder="Ej: Todos Unidos"
+              placeholder="Ej: Gobernador, Alcalde..."
               bind:value={formData.name}
               class="w-full px-3 py-2 rounded-lg border dark:bg-gray-800 dark:border-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500"
             />
             {#if errors.name}<p class="text-red-500 text-xs mt-1">{errors.name}</p>{/if}
           </div>
 
-          <!-- Sigla -->
+          <!-- SCOPE -->
           <div>
-            <label class="font-semibold dark:text-white text-sm mb-1 block">Sigla</label>
+            <label class="font-semibold dark:text-white text-sm mb-1 block">Alcance</label>
+             <select bind:value={formData.scope} class="w-full px-3 py-2 rounded-lg border dark:bg-gray-800 dark:border-gray-700 dark:text-white">
+              <option value="">Seleccione un alcance</option>
+              {#each scopes as s}
+                <option value={s.value}>{s.label}</option>
+              {/each}
+            </select>
+            {#if errors.scope}<p class="text-red-500 text-xs mt-1">{errors.scope}</p>{/if}
+          </div>
+
+          <!-- ORDER -->
+          <div>
+            <label class="font-semibold dark:text-white text-sm mb-1 block">Orden (Prioridad en actas)</label>
             <input
-              type="text"
-              placeholder="Ej: TU"
-              bind:value={formData.sigla}
+              type="number"
+              min="1"
+              placeholder="Ej: 1"
+              bind:value={formData.order}
               class="w-full px-3 py-2 rounded-lg border dark:bg-gray-800 dark:border-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500"
             />
-            {#if errors.sigla}<p class="text-red-500 text-xs mt-1">{errors.sigla}</p>{/if}
+            {#if errors.order}
+              <p class="text-red-500 text-xs mt-1">{errors.order}</p>
+            {/if}
           </div>
-<div>
-  <label class="font-semibold dark:text-white text-sm mb-1 block">Color</label>
-
-  <div class="relative w-10 h-10">
-    <input
-      type="color"
-      bind:value={formData.color}
-      class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-    />
-
-    <!-- Previsualización redonda -->
-    <div
-      class="w-full h-full rounded-full border shadow-md"
-      style="background: {formData.color}"
-    ></div>
-  </div>
-
-  {#if errors.color}
-    <p class="text-red-500 text-xs mt-1">{errors.color}</p>
-  {/if}
-</div>
-
-
-
-
         </div>
-
         <div class="flex justify-end gap-2 mt-6">
           <button class="px-4 py-2 rounded-lg bg-gray-300 dark:bg-gray-700 dark:text-white hover:bg-gray-400 dark:hover:bg-gray-600 transition" on:click={close}>Cancelar</button>
           <button class="px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white transition" on:click={save}>Guardar</button>

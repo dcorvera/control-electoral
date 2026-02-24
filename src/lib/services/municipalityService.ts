@@ -1,6 +1,6 @@
 // $lib/services/municipalityService.ts
 
-import type { Municipality,Province, Country,Departament, GeoPointData, PolygonData } from '$lib/types/types';
+import type { Municipality, Province, Country, Departament, GeoPointData, PolygonData } from '$lib/types/types';
 
 
 // Helpers ------------------------------
@@ -55,9 +55,9 @@ export async function getmunicipalitys(): Promise<Municipality[]> {
 
   const query = new Parse.Query(Municipality);
   query.include("province");
-   query.include("province.departament");
-    query.include("province,departament.country");
-    query.limit(1000);
+  query.include("province.departament");
+  query.include("province.departament.country");
+  query.limit(1000);
 
   try {
     const results = await query.find();
@@ -66,8 +66,8 @@ export async function getmunicipalitys(): Promise<Municipality[]> {
       const geopointData = obj.get("geopoint");
       const polygonData = obj.get("polygon");
       const provinceObj = obj.get("province");
-      const departamentObj = provinceObj.get("departament");
-      const countryObj = departamentObj.get("country");
+      const departamentObj = provinceObj?.get("departament");
+      const countryObj = departamentObj?.get("country");
 
       return {
         id: obj.id,
@@ -77,18 +77,81 @@ export async function getmunicipalitys(): Promise<Municipality[]> {
           id: provinceObj.id,
           code: provinceObj.get("code"),
           name: provinceObj.get("name"),
-          departament: departamentObj?{
-                id:departamentObj.id,
-                code:departamentObj.get("code"),
-                name:departamentObj.get("name"),
-                country: {id:countryObj.id,code:countryObj.get("code"),name:countryObj.get("name")}}:{code:0,name:"sin departamento"},
-          }:{code:0,name:"sin Provincia",departament:{code:0,name:"Sin Departamento"}},
+          departament: departamentObj ? {
+            id: departamentObj.id,
+            code: departamentObj.get("code"),
+            name: departamentObj.get("name"),
+            country: countryObj ? {
+              id: countryObj.id,
+              code: countryObj.get("code"),
+              name: countryObj.get("name")
+            } : { code: 0, name: "sin país" }
+          } : { code: 0, name: "sin departamento" }
+        } : { code: 0, name: "sin Provincia", departament: { code: 0, name: "Sin Departamento" } },
         location: toGeoPoint(geopointData),
         area: toPolygon(polygonData)
       };
     });
   } catch (error) {
-    console.error("Error fetching municipalitys:", error);
+    console.error("Error fetching municipalities:", error);
+    return [];
+  }
+}
+
+// NUEVA FUNCIÓN: Filtrar municipios por provincia
+export async function getMunicipalitiesByProvince(provinceId: string): Promise<Municipality[]> {
+  if (typeof window === 'undefined') return [];
+
+  const Parse = (await import('$lib/parseClient')).default;
+  const Municipality = Parse.Object.extend("Municipality");
+  const Province = Parse.Object.extend("Province");
+
+  const query = new Parse.Query(Municipality);
+  
+  // Crear pointer a la provincia
+  const provincePointer = Province.createWithoutData(provinceId);
+  query.equalTo("province", provincePointer);
+  
+  query.include("province");
+  query.include("province.departament");
+  query.include("province.departament.country");
+  query.ascending("name");
+
+  try {
+    const results = await query.find();
+
+    return results.map((obj: any): Municipality => {
+      const geopointData = obj.get("geopoint");
+      const polygonData = obj.get("polygon");
+      const provinceObj = obj.get("province");
+      const departamentObj = provinceObj?.get("departament");
+      const countryObj = departamentObj?.get("country");
+
+      return {
+        id: obj.id,
+        code: obj.get("code"),
+        name: obj.get("name"),
+        province: provinceObj ? {
+          id: provinceObj.id,
+          code: provinceObj.get("code"),
+          name: provinceObj.get("name"),
+          departament: departamentObj ? {
+            id: departamentObj.id,
+            code: departamentObj.get("code"),
+            name: departamentObj.get("name"),
+            country: countryObj ? {
+              id: countryObj.id,
+              code: countryObj.get("code"),
+              name: countryObj.get("name")
+            } : { code: 0, name: "sin país" }
+          } : { code: 0, name: "sin departamento" }
+        } : { code: 0, name: "sin Provincia", departament: { code: 0, name: "Sin Departamento" } },
+        location: toGeoPoint(geopointData),
+        area: toPolygon(polygonData)
+      };
+    });
+  } catch (error) {
+    console.error("Error fetching municipalities by province:", error);
     return [];
   }
 }
@@ -111,7 +174,7 @@ export async function createMunicipality(data: {
   obj.set("code", data.code);
   obj.set("name", data.name);
 
-  // RELACIÓN: Country
+  // RELACIÓN: Province
   const Province = Parse.Object.extend("Province");
   const province = new Province();
   province.id = data.provinceId;
@@ -137,7 +200,7 @@ export async function createMunicipality(data: {
 
   await obj.save();
 
-  console.log('✅ Municio creado exitosamente');
+  console.log('✅ Municipio creado exitosamente');
 
   return {
     id: obj.id,
@@ -152,7 +215,7 @@ export async function updateMunicipality(
   data: {
     code?: number;
     name: string;
-    provicenId?: string;
+    provinceId?: string;
     location?: GeoPointData;
     area?: PolygonData;
   }
@@ -168,10 +231,10 @@ export async function updateMunicipality(
   if (data.code) obj.set("code", data.code);
   obj.set("name", data.name);
 
-  if (data.provicenId) {
+  if (data.provinceId) {
     const Province = Parse.Object.extend("Province");
     const province = new Province();
-    province.id = data.provicenId;
+    province.id = data.provinceId;
     obj.set("province", province);
   }
 
@@ -194,7 +257,7 @@ export async function updateMunicipality(
 
   await obj.save();
 
-  console.log('✅ municipalityo actualizado exitosamente');
+  console.log('✅ Municipio actualizado exitosamente');
 
   return {
     id: obj.id,
@@ -208,9 +271,9 @@ export async function deleteMunicipality(id: string) {
   if (typeof window === 'undefined') throw new Error("Cannot delete in SSR");
 
   const Parse = (await import('$lib/parseClient')).default;
-  const municipality = Parse.Object.extend("municipality");
+  const Municipality = Parse.Object.extend("Municipality");
 
-  const query = new Parse.Query(municipality);
+  const query = new Parse.Query(Municipality);
   const obj = await query.get(id);
 
   await obj.destroy();

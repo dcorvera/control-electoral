@@ -47,6 +47,11 @@ const toPolygon = (data: any): PolygonData | undefined => {
 
 // Main Service ------------------------------
 
+// Alias para compatibilidad con el componente (nombre en inglés)
+export async function getDepartments(): Promise<Departament[]> {
+  return getDepartaments();
+}
+
 export async function getDepartaments(): Promise<Departament[]> {
   if (typeof window === 'undefined') return [];
 
@@ -63,14 +68,6 @@ export async function getDepartaments(): Promise<Departament[]> {
       const countryObj = obj.get("country");
       const geopointData = obj.get("geopoint");
       const polygonData = obj.get("polygon");
-      
-      // Debug logs
-      console.log('📦 Departamento desde Parse:', {
-        id: obj.id,
-        name: obj.get("name"),
-        geopoint: geopointData,
-        polygon: polygonData
-      });
       
       return {
         id: obj.id,

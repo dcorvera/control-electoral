@@ -736,7 +736,7 @@ async function handleImport() {
           <button class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white" on:click={deleteItem}>Eliminar</button>
         </div>
       {:else}
-        <h2 class="text-xl font-bold mb-4 dark:text-white">{modalType === 'add' ? 'Agregar' : 'Editar'} Localidad</h2>
+        <h2 class="text-xl font-bold mb-4 dark:text-white">{modalType === 'add' ? 'Agregar' : 'Editar'} Recinto</h2>
 
         <div class="space-y-4">
           <!-- COUNTRY SELECT (solo para filtrar) -->

@@ -1,6 +1,6 @@
 // $lib/services/provinceService.ts
 
-import type { Province, Country,Departament, GeoPointData, PolygonData } from '$lib/types/types';
+import type { Province, Country, Departament, GeoPointData, PolygonData } from '$lib/types/types';
 
 
 // Helpers ------------------------------
@@ -64,14 +64,6 @@ export async function getprovinces(): Promise<Province[]> {
       const geopointData = obj.get("geopoint");
       const polygonData = obj.get("polygon");
       
-      // Debug logs
-      console.log('📦 province desde Parse:', {
-        id: obj.id,
-        name: obj.get("name"),
-        geopoint: geopointData,
-        polygon: polygonData
-      });
-      
       return {
         id: obj.id,
         code: obj.get("code"),
@@ -88,6 +80,51 @@ export async function getprovinces(): Promise<Province[]> {
     });
   } catch (error) {
     console.error("Error fetching provinces:", error);
+    return [];
+  }
+}
+
+// NUEVA FUNCIÓN: Filtrar provincias por departamento
+export async function getProvincesByDepartment(departmentId: string): Promise<Province[]> {
+  if (typeof window === 'undefined') return [];
+
+  const Parse = (await import('$lib/parseClient')).default;
+  const Province = Parse.Object.extend("Province");
+  const Departament = Parse.Object.extend("Departament");
+
+  const query = new Parse.Query(Province);
+  
+  // Crear pointer al departamento
+  const departmentPointer = Departament.createWithoutData(departmentId);
+  query.equalTo("departament", departmentPointer);
+  
+  query.include("departament");
+  query.ascending("name");
+
+  try {
+    const results = await query.find();
+
+    return results.map((obj: any): Province => {
+      const departamentObj = obj.get("departament");
+      const geopointData = obj.get("geopoint");
+      const polygonData = obj.get("polygon");
+      
+      return {
+        id: obj.id,
+        code: obj.get("code"),
+        name: obj.get("name"),
+        departament: departamentObj ? {
+          id: departamentObj.id,
+          code: departamentObj.get("code"),
+          name: departamentObj.get("name"),
+          country: departamentObj.get('country'),
+        } : { code: 0, name: 'Sin departamento' },
+        location: toGeoPoint(geopointData),
+        area: toPolygon(polygonData)
+      };
+    });
+  } catch (error) {
+    console.error("Error fetching provinces by department:", error);
     return [];
   }
 }
@@ -110,7 +147,7 @@ export async function createprovince(data: {
   obj.set("code", data.code);
   obj.set("name", data.name);
 
-  // RELACIÓN: Country
+  // RELACIÓN: Departament
   const Departament = Parse.Object.extend("Departament");
   const departament = new Departament();
   departament.id = data.departamentId;
@@ -136,7 +173,7 @@ export async function createprovince(data: {
 
   await obj.save();
 
-  console.log('✅ provinceo creado exitosamente');
+  console.log('✅ Provincia creada exitosamente');
 
   return {
     id: obj.id,
@@ -193,7 +230,7 @@ export async function updateprovince(
 
   await obj.save();
 
-  console.log('✅ provinceo actualizado exitosamente');
+  console.log('✅ Provincia actualizada exitosamente');
 
   return {
     id: obj.id,
@@ -214,5 +251,5 @@ export async function deleteprovince(id: string) {
 
   await obj.destroy();
   
-  console.log('✅ provinceo eliminado exitosamente');
+  console.log('✅ Provincia eliminada exitosamente');
 }
