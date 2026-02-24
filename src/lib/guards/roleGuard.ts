@@ -34,7 +34,7 @@ export const routePermissions: Record<string, string[]> = {
 	'/geografy/precinct': ['superadmin'],
 	
 	// Configuración
-	'/settings': ['superadmin']
+	// '/settings': ['superadmin']
 };
 
 // Verifica si el usuario tiene acceso a una ruta

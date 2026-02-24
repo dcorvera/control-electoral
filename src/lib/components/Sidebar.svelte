@@ -156,12 +156,12 @@
 				}
 			]
 		},
-		{ 
-			name: 'Configuración', 
-			path: '/settings', 
-			icon: Settings,
-			roles: ['superadmin']
-		}
+		// { 
+		// 	name: 'Configuración', 
+		// 	path: '/settings', 
+		// 	icon: Settings,
+		// 	roles: ['superadmin']
+		// }
 	];
 
 	// Filtra el menú según el rol del usuario (reactivo)

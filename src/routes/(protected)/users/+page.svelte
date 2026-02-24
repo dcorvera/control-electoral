@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';
-  import { User, Plus, Edit, Trash2, Search, Shield, RefreshCw, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-svelte';
-  import { getCurrentUser, hasAnyRole } from '$lib/services/authService';
+  import { User, Plus, Edit, Trash2, Search, RefreshCw, Eye, EyeOff, CheckCircle, XCircle } from 'lucide-svelte';
+  import { getCurrentUser } from '$lib/services/authService';
   import { goto } from '$app/navigation';
 
   // Estado
@@ -10,10 +10,11 @@
   let currentUser: any = null;
   let loading = false;
   
-  // Usuarios
+  // Usuarios y roles
   let users: any[] = [];
   let filteredUsers: any[] = [];
   let searchTerm = '';
+  let availableRoles: any[] = [];
   
   // Modal
   let showModal = false;
@@ -25,7 +26,7 @@
     username: '',
     email: '',
     password: '',
-    role: 'viewer' as 'superadmin' | 'admin' | 'digitalizacion' | 'transcripcion' | 'validacion' | 'viewer',
+    selectedRoles: [] as string[],
     active: true
   };
   
@@ -33,51 +34,15 @@
   let showPassword = false;
   let formErrors: Record<string, string> = {};
   
-  // Roles disponibles
-  const roles = [
-    { 
-      value: 'superadmin', 
-      label: 'Super Administrador',
-      description: 'Acceso total al sistema',
-      icon: '👑',
-      color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/20'
-    },
-    { 
-      value: 'admin', 
-      label: 'Administrador',
-      description: 'Gestión completa del proceso electoral',
-      icon: '🛡️',
-      color: 'text-blue-600 bg-blue-100 dark:bg-blue-900/20'
-    },
-    { 
-      value: 'digitalizacion', 
-      label: 'Digitalizador',
-      description: 'Escaneo y carga de actas',
-      icon: '📸',
-      color: 'text-green-600 bg-green-100 dark:bg-green-900/20'
-    },
-    { 
-      value: 'transcripcion', 
-      label: 'Transcriptor',
-      description: 'Transcripción de votos',
-      icon: '✍️',
-      color: 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/20'
-    },
-    { 
-      value: 'validacion', 
-      label: 'Validador',
-      description: 'Validación de actas transcritas',
-      icon: '✅',
-      color: 'text-orange-600 bg-orange-100 dark:bg-orange-900/20'
-    },
-    { 
-      value: 'viewer', 
-      label: 'Visualizador',
-      description: 'Solo lectura de resultados',
-      icon: '👁️',
-      color: 'text-gray-600 bg-gray-100 dark:bg-gray-900/20'
-    }
-  ];
+  // Estilos de roles
+  const roleStyles: Record<string, any> = {
+    superadmin: { label: 'Super Admin', icon: '👑', color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/20' },
+    admin: { label: 'Admin', icon: '🛡️', color: 'text-blue-600 bg-blue-100 dark:bg-blue-900/20' },
+    digitalizacion: { label: 'Digitalizador', icon: '📸', color: 'text-green-600 bg-green-100 dark:bg-green-900/20' },
+    transcripcion: { label: 'Transcriptor', icon: '✍️', color: 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/20' },
+    validacion: { label: 'Validador', icon: '✅', color: 'text-orange-600 bg-orange-100 dark:bg-orange-900/20' },
+    viewer: { label: 'Visualizador', icon: '👁️', color: 'text-gray-600 bg-gray-100 dark:bg-gray-900/20' }
+  };
 
   onMount(async () => {
     if (!browser) return;
@@ -90,22 +55,74 @@
         return;
       }
       
-      const hasAccess = await hasAnyRole(['superadmin', 'admin']);
+      // Verificar roles de Parse directamente
+      const userHasAccess = await checkUserHasAdminRole();
       
-      if (!hasAccess) {
-        alert('No tienes permisos para acceder a esta sección');
+      if (!userHasAccess) {
+        alert('No tienes permisos para acceder a esta sección. Necesitas rol de admin o superadmin.');
         goto('/dashboard');
         return;
       }
       
       loaded = true;
+      await loadRoles();
       await loadUsers();
       
     } catch (error) {
       console.error('Error:', error);
-      goto('/login');
+      alert('Error al cargar: ' + (error instanceof Error ? error.message : 'Error desconocido'));
     }
   });
+
+  async function checkUserHasAdminRole(): Promise<boolean> {
+    try {
+      const Parse = (await import('$lib/parseClient')).default;
+      const roleQuery = new Parse.Query(Parse.Role);
+      roleQuery.equalTo('users', currentUser);
+      
+      const userRoles = await roleQuery.find();
+      const roleNames = userRoles.map(r => r.get('name'));
+      
+      return roleNames.includes('superadmin') || roleNames.includes('admin');
+    } catch (error) {
+      console.error('Error verificando roles:', error);
+      return false;
+    }
+  }
+
+  async function loadRoles() {
+    try {
+      const Parse = (await import('$lib/parseClient')).default;
+      const query = new Parse.Query(Parse.Role);
+      query.ascending('name');
+      
+      const results = await query.find();
+      availableRoles = results.map(role => ({
+        id: role.id,
+        name: role.get('name')
+      }));
+      
+      console.log('🎭 Roles cargados desde Parse:', availableRoles);
+      
+      // Si no hay roles, advertir
+      if (availableRoles.length === 0) {
+        console.warn('⚠️ No se encontraron roles en Parse. Asegúrate de crear roles en _Role.');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error al cargar roles:', error);
+      // Si falla cargar roles, usar lista por defecto
+      availableRoles = [
+        { id: 'default-superadmin', name: 'superadmin' },
+        { id: 'default-admin', name: 'admin' },
+        { id: 'default-digitalizacion', name: 'digitalizacion' },
+        { id: 'default-transcripcion', name: 'transcripcion' },
+        { id: 'default-validacion', name: 'validacion' },
+        { id: 'default-viewer', name: 'viewer' }
+      ];
+      console.log('⚠️ Usando roles por defecto:', availableRoles);
+    }
+  }
 
   async function loadUsers() {
     loading = true;
@@ -113,105 +130,71 @@
     try {
       const Parse = (await import('$lib/parseClient')).default;
       
-      // Intentar cargar UserProfiles
-      const UserProfile = Parse.Object.extend('UserProfile');
-      const query = new Parse.Query(UserProfile);
-      query.include('user');
+      const query = new Parse.Query(Parse.User);
       query.descending('createdAt');
       query.limit(1000);
       
-      let results = [];
+      const results = await query.find();
       
-      try {
-        results = await query.find();
-      } catch (error: any) {
-        // Si la clase no existe, intentar crearla con un objeto dummy
-        if (error.code === 119 || error.message.includes('non-existent class')) {
-          console.log('Clase UserProfile no existe, creando...');
-          
-          // Crear el primer UserProfile para el usuario actual
-          const currentUserRole = currentUser?.get('role') || 'superadmin';
-          
-          const profile = new UserProfile();
-          profile.set('user', currentUser);
-          profile.set('username', currentUser?.get('username'));
-          profile.set('email', currentUser?.get('email'));
-          profile.set('role', currentUserRole);
-          profile.set('active', true);
-          
-          // ACL básico
-          const acl = new Parse.ACL();
-          acl.setPublicReadAccess(false);
-          acl.setPublicWriteAccess(false);
-          acl.setReadAccess(currentUser, true);
-          acl.setWriteAccess(currentUser, true);
-          profile.setACL(acl);
-          
-          try {
-            await profile.save();
-            console.log('✅ Clase UserProfile creada');
-            
-            // Recargar después de crear
-            results = await query.find();
-          } catch (saveError) {
-            console.error('Error al crear UserProfile:', saveError);
-            throw new Error('No se pudo crear la clase UserProfile. Por favor, créala manualmente en Parse Dashboard.');
-          }
-        } else {
-          throw error;
-        }
-      }
+      console.log(`📊 Cargando ${results.length} usuarios...`);
       
-      users = results.map(profile => {
-        const user = profile.get('user');
-        return {
-          id: profile.id,
-          userId: user?.id,
-          username: user?.get('username') || profile.get('username'),
-          email: user?.get('email') || profile.get('email'),
-          role: profile.get('role') || 'viewer',
-          active: profile.get('active') !== false,
-          createdAt: profile.get('createdAt'),
-          updatedAt: profile.get('updatedAt')
-        };
-      });
+      // Cargar roles de cada usuario
+      const usersWithRoles = await Promise.all(
+        results.map(async (user) => {
+          const roles = await getUserRoles(user);
+          return {
+            id: user.id,
+            username: user.get('username'),
+            email: user.get('email'),
+            roles: roles,
+            active: user.get('active') !== false,
+            createdAt: user.get('createdAt')
+          };
+        })
+      );
       
+      users = usersWithRoles;
       filteredUsers = users;
       
-      // Si no hay usuarios, mostrar ayuda
-      if (users.length === 0) {
-        console.log('ℹ️ No hay UserProfiles. Crea el primero desde el botón "Nuevo Usuario"');
-      }
+      console.log('✅ Usuarios cargados:', users);
       
-    } catch (error: any) {
-      console.error('Error:', error);
-      
-      let errorMessage = 'Error al cargar usuarios';
-      
-      if (error.code === 119) {
-        errorMessage = 'La clase UserProfile no existe. Se intentó crear automáticamente.';
-      } else if (error.message.includes('non-existent class')) {
-        errorMessage = 'Por favor, crea la clase UserProfile en Parse Dashboard primero.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      alert(errorMessage);
+    } catch (error) {
+      console.error('❌ Error al cargar usuarios:', error);
+      alert('Error al cargar usuarios: ' + (error instanceof Error ? error.message : 'Error desconocido'));
     } finally {
       loading = false;
+    }
+  }
+
+  async function getUserRoles(user: any): Promise<string[]> {
+    try {
+      const Parse = (await import('$lib/parseClient')).default;
+      
+      // Crear query para buscar roles que contengan este usuario
+      const roleQuery = new Parse.Query(Parse.Role);
+      roleQuery.equalTo('users', user);
+      
+      const roles = await roleQuery.find();
+      const roleNames = roles.map(role => role.get('name'));
+      
+      // Debug: mostrar roles encontrados
+      if (roleNames.length > 0) {
+        console.log(`Usuario ${user.get('username')} tiene roles:`, roleNames);
+      } else {
+        console.warn(`Usuario ${user.get('username')} no tiene roles asignados`);
+      }
+      
+      return roleNames;
+    } catch (error) {
+      console.error(`Error obteniendo roles para ${user.get('username')}:`, error);
+      return [];
     }
   }
 
   function openCreateModal() {
     modalMode = 'create';
     editingUser = null;
-    formData = {
-      username: '',
-      email: '',
-      password: '',
-      role: 'viewer',
-      active: true
-    };
+    formData = { username: '', email: '', password: '', selectedRoles: [], active: true };
     formErrors = {};
     showModal = true;
   }
@@ -223,7 +206,7 @@
       username: user.username,
       email: user.email,
       password: '',
-      role: user.role,
+      selectedRoles: [...user.roles],
       active: user.active
     };
     formErrors = {};
@@ -232,36 +215,15 @@
 
   function closeModal() {
     showModal = false;
-    formData = {
-      username: '',
-      email: '',
-      password: '',
-      role: 'viewer',
-      active: true
-    };
-    formErrors = {};
   }
 
   function validateForm(): boolean {
     formErrors = {};
     
-    if (!formData.username.trim()) {
-      formErrors.username = 'El nombre de usuario es requerido';
-    } else if (formData.username.length < 3) {
-      formErrors.username = 'Mínimo 3 caracteres';
-    }
-    
-    if (!formData.email.trim()) {
-      formErrors.email = 'El email es requerido';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      formErrors.email = 'Email inválido';
-    }
-    
-    if (modalMode === 'create' && !formData.password) {
-      formErrors.password = 'La contraseña es requerida';
-    } else if (formData.password && formData.password.length < 6) {
-      formErrors.password = 'Mínimo 6 caracteres';
-    }
+    if (!formData.username.trim()) formErrors.username = 'Requerido';
+    if (!formData.email.trim()) formErrors.email = 'Requerido';
+    if (modalMode === 'create' && !formData.password) formErrors.password = 'Requerido';
+    if (formData.selectedRoles.length === 0) formErrors.roles = 'Selecciona al menos un rol';
     
     return Object.keys(formErrors).length === 0;
   }
@@ -275,83 +237,75 @@
       const Parse = (await import('$lib/parseClient')).default;
       
       if (modalMode === 'create') {
-        // 1. Crear usuario de Parse
+        // Crear usuario
         const user = new Parse.User();
         user.set('username', formData.username.trim());
         user.set('email', formData.email.trim());
         user.set('password', formData.password);
-        user.set('role', formData.role); // Guardar rol también en _User
+        user.set('active', formData.active);
         
         await user.signUp();
         
-        // 2. Crear UserProfile asociado
-        const UserProfile = Parse.Object.extend('UserProfile');
-        const profile = new UserProfile();
-        
-        profile.set('user', user);
-        profile.set('username', formData.username.trim());
-        profile.set('email', formData.email.trim());
-        profile.set('role', formData.role);
-        profile.set('active', formData.active);
-        
-        // ACL: Acceso basado en el usuario actual y público para admins
-        const acl = new Parse.ACL();
-        acl.setPublicReadAccess(false);
-        acl.setPublicWriteAccess(false);
-        
-        // El usuario actual (admin) puede leer/escribir
-        if (currentUser) {
-          acl.setReadAccess(currentUser, true);
-          acl.setWriteAccess(currentUser, true);
-        }
-        
-        // El nuevo usuario puede leer su propio perfil
-        acl.setReadAccess(user, true);
-        
-        profile.setACL(acl);
-        
-        try {
-          await profile.save();
-          alert('✅ Usuario creado exitosamente');
-        } catch (profileError: any) {
-          console.error('Error al crear UserProfile:', profileError);
+        // Asignar roles
+        for (const roleName of formData.selectedRoles) {
+          const roleQuery = new Parse.Query(Parse.Role);
+          roleQuery.equalTo('name', roleName);
+          const role = await roleQuery.first();
           
-          // Si falló crear el profile, eliminar el usuario
-          try {
-            await user.destroy();
-          } catch (cleanupError) {
-            console.error('Error al limpiar usuario:', cleanupError);
+          if (role) {
+            role.relation('users').add(user);
+            await role.save();
           }
-          
-          throw new Error('No se pudo crear el perfil del usuario: ' + profileError.message);
         }
+        
+        alert('✅ Usuario creado exitosamente');
       } else {
-        // Editar UserProfile
-        const UserProfile = Parse.Object.extend('UserProfile');
-        const query = new Parse.Query(UserProfile);
-        const profile = await query.get(editingUser.id);
+        // Editar usuario
+        const query = new Parse.Query(Parse.User);
+        const user = await query.get(editingUser.id);
         
-        profile.set('username', formData.username.trim());
-        profile.set('email', formData.email.trim());
-        profile.set('role', formData.role);
-        profile.set('active', formData.active);
+        user.set('username', formData.username.trim());
+        user.set('email', formData.email.trim());
+        user.set('active', formData.active);
         
-        await profile.save();
+        // Solo el mismo usuario puede cambiar su contraseña
+        if (formData.password && user.id === currentUser?.id) {
+          user.set('password', formData.password);
+        }
         
-        // Si cambió la contraseña, intentar actualizar el usuario
-        if (formData.password) {
-          try {
-            const user = await Parse.User.current();
-            if (user && user.id === editingUser.userId) {
-              user.set('password', formData.password);
-              await user.save();
+        await user.save();
+        
+        // Actualizar roles
+        const currentRoles = new Set(editingUser.roles);
+        const newRoles = new Set(formData.selectedRoles);
+        
+        // Remover de roles viejos
+        for (const roleName of currentRoles) {
+          if (!newRoles.has(roleName)) {
+            const roleQuery = new Parse.Query(Parse.Role);
+            roleQuery.equalTo('name', roleName);
+            const role = await roleQuery.first();
+            if (role) {
+              role.relation('users').remove(user);
+              await role.save();
             }
-          } catch (err) {
-            console.warn('No se pudo actualizar contraseña:', err);
           }
         }
         
-        alert('✅ Usuario actualizado exitosamente');
+        // Agregar a roles nuevos
+        for (const roleName of newRoles) {
+          if (!currentRoles.has(roleName)) {
+            const roleQuery = new Parse.Query(Parse.Role);
+            roleQuery.equalTo('name', roleName);
+            const role = await roleQuery.first();
+            if (role) {
+              role.relation('users').add(user);
+              await role.save();
+            }
+          }
+        }
+        
+        alert('✅ Usuario actualizado');
       }
       
       closeModal();
@@ -359,39 +313,44 @@
       
     } catch (error: any) {
       console.error('Error:', error);
-      alert(`Error: ${error.message || 'No se pudo guardar el usuario'}`);
+      alert('Error: ' + error.message);
     } finally {
       loading = false;
     }
   }
 
   async function deleteUser(user: any) {
-    if (user.userId === currentUser?.id) {
+    if (user.id === currentUser?.id) {
       alert('❌ No puedes eliminar tu propio usuario');
       return;
     }
     
-    if (!confirm(`¿Eliminar usuario "${user.username}"?\n\nEsta acción no se puede deshacer.`)) {
-      return;
-    }
+    if (!confirm(`¿Eliminar usuario "${user.username}"?`)) return;
     
     loading = true;
     
     try {
       const Parse = (await import('$lib/parseClient')).default;
+      const query = new Parse.Query(Parse.User);
+      const userObj = await query.get(user.id);
       
-      const UserProfile = Parse.Object.extend('UserProfile');
-      const query = new Parse.Query(UserProfile);
-      const profile = await query.get(user.id);
+      // Remover de todos los roles
+      for (const roleName of user.roles) {
+        const roleQuery = new Parse.Query(Parse.Role);
+        roleQuery.equalTo('name', roleName);
+        const role = await roleQuery.first();
+        if (role) {
+          role.relation('users').remove(userObj);
+          await role.save();
+        }
+      }
       
-      await profile.destroy();
-      
+      await userObj.destroy();
       alert('✅ Usuario eliminado');
       await loadUsers();
       
     } catch (error: any) {
-      console.error('Error:', error);
-      alert('Error al eliminar usuario: ' + (error.message || 'Error desconocido'));
+      alert('Error: ' + error.message);
     } finally {
       loading = false;
     }
@@ -399,41 +358,48 @@
 
   async function toggleUserStatus(user: any) {
     loading = true;
-    
     try {
       const Parse = (await import('$lib/parseClient')).default;
-      
-      const UserProfile = Parse.Object.extend('UserProfile');
-      const query = new Parse.Query(UserProfile);
-      const profile = await query.get(user.id);
-      
-      const newStatus = !user.active;
-      profile.set('active', newStatus);
-      
-      await profile.save();
-      
-      alert(`✅ Usuario ${newStatus ? 'activado' : 'desactivado'}`);
+      const query = new Parse.Query(Parse.User);
+      const userObj = await query.get(user.id);
+      userObj.set('active', !user.active);
+      await userObj.save();
       await loadUsers();
-      
     } catch (error: any) {
-      console.error('Error:', error);
-      alert('Error al cambiar estado: ' + (error.message || 'Error desconocido'));
+      alert('Error: ' + error.message);
     } finally {
       loading = false;
     }
   }
 
-  function getRoleInfo(roleValue: string) {
-    return roles.find(r => r.value === roleValue) || roles[roles.length - 1];
+  function getRoleStyle(roleName: string) {
+    const style = roleStyles[roleName];
+    
+    if (!style) {
+      console.warn(`⚠️ Rol "${roleName}" no tiene estilo definido en roleStyles`);
+    }
+    
+    return style || { 
+      label: roleName.charAt(0).toUpperCase() + roleName.slice(1), 
+      icon: '🔹', 
+      color: 'text-indigo-600 bg-indigo-100 dark:bg-indigo-900/20 dark:text-indigo-200' 
+    };
+  }
+
+  function toggleRole(roleName: string) {
+    const index = formData.selectedRoles.indexOf(roleName);
+    if (index > -1) {
+      formData.selectedRoles = formData.selectedRoles.filter(r => r !== roleName);
+    } else {
+      formData.selectedRoles = [...formData.selectedRoles, roleName];
+    }
   }
 
   $: {
     if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filteredUsers = users.filter(user => 
-        user.username.toLowerCase().includes(term) ||
-        user.email.toLowerCase().includes(term) ||
-        getRoleInfo(user.role).label.toLowerCase().includes(term)
+      filteredUsers = users.filter(u => 
+        u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        u.email.toLowerCase().includes(searchTerm.toLowerCase())
       );
     } else {
       filteredUsers = users;
@@ -443,127 +409,64 @@
 
 <div class="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 sm:p-6 lg:p-8">
   <div class="max-w-7xl mx-auto">
-    <!-- Header -->
     <div class="mb-8">
-      <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-        👥 Gestión de Usuarios
-      </h1>
-      <p class="text-gray-600 dark:text-gray-400">
-        Administra los usuarios del sistema electoral
-      </p>
+      <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">👥 Gestión de Usuarios</h1>
+      <p class="text-gray-600 dark:text-gray-400">Administra usuarios y roles del sistema</p>
     </div>
 
     {#if loaded}
-      <!-- Acciones y búsqueda -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 mb-6">
-        <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <!-- Búsqueda -->
+        <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-4">
           <div class="relative flex-1 w-full sm:max-w-md">
             <Search size={20} class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              bind:value={searchTerm}
-              placeholder="Buscar por nombre, email o rol..."
-              class="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-            />
+            <input type="text" bind:value={searchTerm} placeholder="Buscar..." 
+                   class="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white" />
           </div>
 
-          <!-- Botones -->
           <div class="flex gap-3 w-full sm:w-auto">
-            <button
-              on:click={loadUsers}
-              disabled={loading}
-              class="flex-1 sm:flex-none px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
+            <button on:click={loadUsers} disabled={loading}
+                    class="flex-1 sm:flex-none px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300 transition flex items-center gap-2">
               <RefreshCw size={16} class={loading ? 'animate-spin' : ''} />
               Actualizar
             </button>
-            <button
-              on:click={openCreateModal}
-              class="flex-1 sm:flex-none px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-semibold flex items-center justify-center gap-2"
-            >
+            <button on:click={openCreateModal}
+                    class="flex-1 sm:flex-none px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition flex items-center gap-2">
               <Plus size={16} />
               Nuevo Usuario
             </button>
           </div>
         </div>
-
-        <!-- Stats -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-6">
-          {#each roles as role}
-            {@const count = users.filter(u => u.role === role.value).length}
-            <div class="p-3 rounded-lg border-2 {role.color} border-opacity-20">
-              <div class="text-2xl mb-1">{role.icon}</div>
-              <div class="text-xs text-gray-600 dark:text-gray-400">{role.label}</div>
-              <div class="text-xl font-bold dark:text-white">{count}</div>
-            </div>
-          {/each}
-        </div>
       </div>
 
-      <!-- Lista de usuarios -->
       <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
         {#if loading && users.length === 0}
           <div class="p-12 text-center">
             <RefreshCw size={48} class="animate-spin mx-auto mb-4 text-orange-600" />
-            <p class="text-gray-600 dark:text-gray-400">Cargando usuarios...</p>
+            <p class="text-gray-600 dark:text-gray-400">Cargando...</p>
           </div>
         {:else if filteredUsers.length === 0}
           <div class="p-12 text-center">
             <User size={48} class="mx-auto mb-4 text-gray-400" />
-            <h3 class="text-lg font-semibold mb-2 dark:text-white">
-              {searchTerm ? 'No se encontraron usuarios' : 'No hay usuarios registrados'}
-            </h3>
-            <p class="text-gray-600 dark:text-gray-400 mb-4">
-              {searchTerm ? 'Intenta con otro criterio de búsqueda' : 'Crea el primer usuario del sistema'}
-            </p>
-            
-            {#if !searchTerm}
-              <div class="max-w-md mx-auto mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 text-left">
-                <h4 class="font-semibold text-blue-800 dark:text-blue-200 mb-2">ℹ️ Primer uso:</h4>
-                <ol class="text-sm text-blue-700 dark:text-blue-300 space-y-1 list-decimal list-inside">
-                  <li>Asegúrate de tener rol "superadmin" o "admin"</li>
-                  <li>Click en "Nuevo Usuario" para crear el primer usuario</li>
-                  <li>La clase UserProfile se creará automáticamente</li>
-                </ol>
-              </div>
-              
-              <button
-                on:click={openCreateModal}
-                class="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-semibold flex items-center gap-2 mx-auto"
-              >
-                <Plus size={20} />
-                Crear Primer Usuario
-              </button>
-            {/if}
+            <h3 class="text-lg font-semibold mb-2 dark:text-white">No hay usuarios</h3>
+            <button on:click={openCreateModal} class="mt-4 px-4 py-2 bg-orange-600 text-white rounded-lg">
+              Crear Usuario
+            </button>
           </div>
         {:else}
           <div class="overflow-x-auto">
             <table class="w-full">
-              <thead class="bg-gray-50 dark:bg-gray-700 border-b-2 border-gray-200 dark:border-gray-600">
+              <thead class="bg-gray-50 dark:bg-gray-700 border-b-2 dark:border-gray-600">
                 <tr>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Usuario
-                  </th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Rol
-                  </th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Estado
-                  </th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden md:table-cell">
-                    Creado
-                  </th>
-                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Acciones
-                  </th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Usuario</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Roles</th>
+                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Estado</th>
+                  <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Acciones</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                 {#each filteredUsers as user}
-                  {@const roleInfo = getRoleInfo(user.role)}
-                  <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
-                    <td class="px-6 py-4 whitespace-nowrap">
+                  <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                    <td class="px-6 py-4">
                       <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center font-semibold text-white">
                           {user.username.charAt(0).toUpperCase()}
@@ -574,55 +477,45 @@
                         </div>
                       </div>
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                      <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium {roleInfo.color}">
-                        <span>{roleInfo.icon}</span>
-                        <span>{roleInfo.label}</span>
-                      </span>
+                    <td class="px-6 py-4">
+                      <div class="flex flex-wrap gap-1">
+                        {#if user.roles.length > 0}
+                          {#each user.roles as roleName}
+                            {@const style = getRoleStyle(roleName)}
+                            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs {style.color}">
+                              {style.icon} {style.label}
+                            </span>
+                          {/each}
+                        {:else}
+                          <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs text-red-600 bg-red-100 dark:bg-red-900/20">
+                            ⚠️ Sin roles
+                          </span>
+                        {/if}
+                      </div>
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
+                    <td class="px-6 py-4">
                       {#if user.active}
-                        <span class="inline-flex items-center gap-1 px-3 py-1 bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200 rounded-full text-sm font-medium">
-                          <CheckCircle size={14} />
-                          Activo
+                        <span class="inline-flex items-center gap-1 px-3 py-1 bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-200 rounded-full text-sm">
+                          <CheckCircle size={14} /> Activo
                         </span>
                       {:else}
-                        <span class="inline-flex items-center gap-1 px-3 py-1 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded-full text-sm font-medium">
-                          <XCircle size={14} />
-                          Inactivo
+                        <span class="inline-flex items-center gap-1 px-3 py-1 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 rounded-full text-sm">
+                          <XCircle size={14} /> Inactivo
                         </span>
                       {/if}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell">
-                      {new Date(user.createdAt).toLocaleDateString('es-BO')}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td class="px-6 py-4 text-right">
                       <div class="flex items-center justify-end gap-2">
-                        <button
-                          on:click={() => toggleUserStatus(user)}
-                          class="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition"
-                          title={user.active ? 'Desactivar' : 'Activar'}
-                          disabled={user.id === currentUser?.id}
-                        >
-                          {#if user.active}
-                            <XCircle size={18} />
-                          {:else}
-                            <CheckCircle size={18} />
-                          {/if}
+                        <button on:click={() => toggleUserStatus(user)} disabled={loading}
+                                class="p-2 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg transition">
+                          {#if user.active}<XCircle size={18} />{:else}<CheckCircle size={18} />{/if}
                         </button>
-                        <button
-                          on:click={() => openEditModal(user)}
-                          class="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition"
-                          title="Editar"
-                        >
+                        <button on:click={() => openEditModal(user)} disabled={loading}
+                                class="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition">
                           <Edit size={18} />
                         </button>
-                        <button
-                          on:click={() => deleteUser(user)}
-                          class="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
-                          title="Eliminar"
-                          disabled={user.id === currentUser?.id}
-                        >
+                        <button on:click={() => deleteUser(user)} disabled={user.id === currentUser?.id || loading}
+                                class="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition">
                           <Trash2 size={18} />
                         </button>
                       </div>
@@ -634,144 +527,82 @@
           </div>
         {/if}
       </div>
-    {:else}
-      <div class="text-center py-12">
-        <div class="text-gray-600 dark:text-gray-400">Cargando...</div>
-      </div>
     {/if}
   </div>
 </div>
 
-<!-- Modal Crear/Editar Usuario -->
 {#if showModal}
-  <div class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full my-8">
-      <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+  <div class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div class="p-6 border-b dark:border-gray-700">
         <h3 class="text-2xl font-bold dark:text-white">
           {modalMode === 'create' ? '➕ Crear Usuario' : '✏️ Editar Usuario'}
         </h3>
       </div>
 
-      <div class="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-        <!-- Username -->
+      <div class="p-6 space-y-4">
         <div>
-          <label class="block text-sm font-medium mb-2 dark:text-white">
-            Nombre de Usuario <span class="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            bind:value={formData.username}
-            class="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent {formErrors.username ? 'border-red-500' : ''}"
-            placeholder="usuario123"
-          />
-          {#if formErrors.username}
-            <p class="text-red-500 text-sm mt-1">{formErrors.username}</p>
-          {/if}
+          <label class="block text-sm font-medium mb-2 dark:text-white">Username *</label>
+          <input type="text" bind:value={formData.username} 
+                 class="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white {formErrors.username ? 'border-red-500' : ''}" />
+          {#if formErrors.username}<p class="text-red-500 text-sm mt-1">{formErrors.username}</p>{/if}
         </div>
 
-        <!-- Email -->
         <div>
-          <label class="block text-sm font-medium mb-2 dark:text-white">
-            Email <span class="text-red-500">*</span>
-          </label>
-          <input
-            type="email"
-            bind:value={formData.email}
-            class="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent {formErrors.email ? 'border-red-500' : ''}"
-            placeholder="usuario@ejemplo.com"
-          />
-          {#if formErrors.email}
-            <p class="text-red-500 text-sm mt-1">{formErrors.email}</p>
-          {/if}
+          <label class="block text-sm font-medium mb-2 dark:text-white">Email *</label>
+          <input type="email" bind:value={formData.email}
+                 class="w-full px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white {formErrors.email ? 'border-red-500' : ''}" />
+          {#if formErrors.email}<p class="text-red-500 text-sm mt-1">{formErrors.email}</p>{/if}
         </div>
 
-        <!-- Password -->
         <div>
           <label class="block text-sm font-medium mb-2 dark:text-white">
-            Contraseña {modalMode === 'edit' ? '(dejar en blanco para no cambiar)' : ''} {#if modalMode === 'create'}<span class="text-red-500">*</span>{/if}
+            Password {modalMode === 'edit' ? '(dejar vacío para no cambiar)' : '*'}
           </label>
           <div class="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              bind:value={formData.password}
-              class="w-full px-4 py-2 pr-10 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent {formErrors.password ? 'border-red-500' : ''}"
-              placeholder="Mínimo 6 caracteres"
-            />
-            <button
-              type="button"
-              on:click={() => showPassword = !showPassword}
-              class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400"
-            >
-              {#if showPassword}
-                <EyeOff size={20} />
-              {:else}
-                <Eye size={20} />
-              {/if}
+            <input type={showPassword ? 'text' : 'password'} bind:value={formData.password}
+                   class="w-full px-4 py-2 pr-10 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white {formErrors.password ? 'border-red-500' : ''}" />
+            <button type="button" on:click={() => showPassword = !showPassword}
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+              {#if showPassword}<EyeOff size={20} />{:else}<Eye size={20} />{/if}
             </button>
           </div>
-          {#if formErrors.password}
-            <p class="text-red-500 text-sm mt-1">{formErrors.password}</p>
-          {/if}
+          {#if formErrors.password}<p class="text-red-500 text-sm mt-1">{formErrors.password}</p>{/if}
         </div>
 
-        <!-- Rol -->
         <div>
-          <label class="block text-sm font-medium mb-2 dark:text-white">
-            Rol <span class="text-red-500">*</span>
-          </label>
+          <label class="block text-sm font-medium mb-2 dark:text-white">Roles *</label>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {#each roles as role}
-              <label class="relative flex items-start p-4 border-2 rounded-lg cursor-pointer transition {formData.role === role.value ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'border-gray-200 dark:border-gray-600 hover:border-orange-300'}">
-                <input
-                  type="radio"
-                  name="role"
-                  value={role.value}
-                  bind:group={formData.role}
-                  class="mt-1"
-                />
-                <div class="ml-3 flex-1">
-                  <div class="flex items-center gap-2 mb-1">
-                    <span class="text-xl">{role.icon}</span>
-                    <span class="font-semibold dark:text-white">{role.label}</span>
+            {#each availableRoles as role}
+              {@const style = getRoleStyle(role.name)}
+              {@const isSelected = formData.selectedRoles.includes(role.name)}
+              <label class="flex items-start p-4 border-2 rounded-lg cursor-pointer {isSelected ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20' : 'border-gray-200 dark:border-gray-600'}">
+                <input type="checkbox" checked={isSelected} on:change={() => toggleRole(role.name)} class="mt-1" />
+                <div class="ml-3">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">{style.icon}</span>
+                    <span class="font-semibold dark:text-white text-sm">{style.label}</span>
                   </div>
-                  <p class="text-xs text-gray-600 dark:text-gray-400">{role.description}</p>
                 </div>
               </label>
             {/each}
           </div>
+          {#if formErrors.roles}<p class="text-red-500 text-sm mt-1">{formErrors.roles}</p>{/if}
         </div>
 
-        <!-- Estado -->
-        <div>
-          <label class="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              bind:checked={formData.active}
-              class="w-5 h-5 text-orange-600 rounded focus:ring-orange-500"
-            />
-            <div>
-              <span class="font-medium dark:text-white">Usuario Activo</span>
-              <p class="text-sm text-gray-600 dark:text-gray-400">
-                Los usuarios inactivos no pueden iniciar sesión
-              </p>
-            </div>
-          </label>
-        </div>
+        <label class="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" bind:checked={formData.active} class="w-5 h-5 text-orange-600 rounded" />
+          <span class="font-medium dark:text-white">Usuario Activo</span>
+        </label>
       </div>
 
-      <div class="p-6 border-t border-gray-200 dark:border-gray-700 flex gap-3">
-        <button
-          on:click={closeModal}
-          class="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition"
-        >
+      <div class="p-6 border-t dark:border-gray-700 flex gap-3">
+        <button on:click={closeModal} class="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-lg hover:bg-gray-300">
           Cancelar
         </button>
-        <button
-          on:click={handleSubmit}
-          disabled={loading}
-          class="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition font-semibold disabled:opacity-50"
-        >
-          {loading ? 'Guardando...' : (modalMode === 'create' ? 'Crear Usuario' : 'Guardar Cambios')}
+        <button on:click={handleSubmit} disabled={loading}
+                class="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">
+          {loading ? 'Guardando...' : (modalMode === 'create' ? 'Crear' : 'Guardar')}
         </button>
       </div>
     </div>
