@@ -40,7 +40,7 @@
   <div class="flex justify-between items-center">
     <!-- Logo/Title (solo móvil) -->
     <div class="lg:hidden">
-      <h1 class="font-bold text-gray-900 dark:text-white text-lg">Control Electoral</h1>
+      <h1 class="font-bold text-gray-900 dark:text-white text-lg">Control Electoral </h1>
     </div>
 
     <!-- Desktop: título de página o breadcrumb -->
