@@ -281,7 +281,7 @@
         
         // Remover de roles viejos
         for (const roleName of currentRoles) {
-          if (!newRoles.has(roleName)) {
+          if (!newRoles.has((roleName:any))) {
             const roleQuery = new Parse.Query(Parse.Role);
             roleQuery.equalTo('name', roleName);
             const role = await roleQuery.first();
